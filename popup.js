@@ -2,6 +2,31 @@ document.addEventListener('DOMContentLoaded', () => {
   const resolutionSelect = document.getElementById('resolution');
   const statusDiv = document.getElementById('status');
 
+  // Function to safely send messages to content script
+  async function sendMessageToContentScript(message) {
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (tab.url.includes('youtube.com/watch')) {
+        return await chrome.tabs.sendMessage(tab.id, message);
+      }
+      return null;
+    } catch (error) {
+      console.log('Content script message error:', error);
+      return null;
+    }
+  }
+
+  // Function to show status message
+  function showStatus(message, isError = false) {
+    statusDiv.textContent = message;
+    statusDiv.style.backgroundColor = isError ? '#fee2e2' : '#ecfdf5';
+    statusDiv.style.color = isError ? '#dc2626' : '#059669';
+    statusDiv.classList.add('show');
+    setTimeout(() => {
+      statusDiv.classList.remove('show');
+    }, 2000);
+  }
+
   // Load saved resolution
   chrome.storage.sync.get(['preferredResolution'], (result) => {
     if (result.preferredResolution) {
@@ -10,25 +35,27 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // Save resolution when changed
-  resolutionSelect.addEventListener('change', () => {
+  resolutionSelect.addEventListener('change', async () => {
     const selectedResolution = resolutionSelect.value;
-    chrome.storage.sync.set({ preferredResolution: selectedResolution }, () => {
-      // Show saved status with animation
-      statusDiv.classList.add('show');
-      setTimeout(() => {
-        statusDiv.classList.remove('show');
-      }, 2000);
-
-      // Notify content script
-      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        const activeTab = tabs[0];
-        if (activeTab.url.includes('youtube.com')) {
-          chrome.tabs.sendMessage(activeTab.id, {
-            type: 'RESOLUTION_CHANGED',
-            resolution: selectedResolution
-          });
-        }
+    
+    try {
+      // Save to storage
+      await chrome.storage.sync.set({ preferredResolution: selectedResolution });
+      
+      // Try to update current video if on YouTube
+      const response = await sendMessageToContentScript({
+        type: 'RESOLUTION_CHANGED',
+        resolution: selectedResolution
       });
-    });
+
+      if (response) {
+        showStatus('Settings saved successfully!');
+      } else {
+        showStatus('Settings saved. Will apply to next video.');
+      }
+    } catch (error) {
+      console.log('Error saving settings:', error);
+      showStatus('Error saving settings. Please try again.', true);
+    }
   });
 }); 
