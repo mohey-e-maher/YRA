@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>YouTube Resolution Controller</title>
+  <link href="styles.css" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet">
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <span class="material-icons-round icon">settings</span>
+      <h3>Video Quality</h3>
+    </div>
+    <div class="resolution-wrapper">
+      <label for="resolution">Select default resolution</label>
+      <select id="resolution">
+        <option value="2160">2160p (4K Ultra HD)</option>
+        <option value="1440">1440p (2K Quad HD)</option>
+        <option value="1080">1080p (Full HD)</option>
+        <option value="720">720p (HD)</option>
+        <option value="480">480p (SD)</option>
+        <option value="360">360p</option>
+        <option value="240">240p</option>
+        <option value="144">144p</option>
+      </select>
+    </div>
+    <div id="status" class="status">
+      <span class="material-icons-round status-icon">check_circle</span>
+      <span class="status-text">Settings saved successfully!</span>
+    </div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html> 
