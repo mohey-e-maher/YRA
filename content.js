@@ -1,11 +1,10 @@
 let currentVideo = null;
 let resolutionChangeAttempts = 0;
 const MAX_ATTEMPTS = 20;
-let preferredResolution = null;
 
 // Quality options mapping
 const QUALITY_MAP = {
-  '2160': 'hd2160',
+  '2160': 'highres',
   '1440': 'hd1440',
   '1080': 'hd1080',
   '720': 'hd720',
@@ -27,151 +26,68 @@ async function sendMessageToExtension(message) {
 
 // Function to initialize player
 function initPlayer() {
-  const player = document.getElementById('movie_player');
+  let player = document.getElementById('movie_player');
+  if (!player) {
+    player = document.getElementById('movie_player-flash');
+  }
+  
   if (!player) return null;
 
   // Check for HTML5 player
-  const html5 = player.getElementsByTagName('video').length > 0;
+  const isHTML5 = player.getElementsByTagName('video').length > 0;
 
   // Make sure player API is ready
-  if (typeof player.getPlayerState === 'undefined') {
+  if (typeof player.pauseVideo === 'undefined') {
+    return null;
+  }
+
+  // Pause to avoid flicker caused by loading different quality
+  player.pauseVideo();
+
+  // In Chrome Flash player, player.setQualityLevel() doesn't work unless video has started playing
+  if (!isHTML5 && player.getPlayerState() < 1) {
     return null;
   }
 
   return player;
 }
 
-// Function to force quality change through UI
-async function forceQualityChange(player, targetQuality) {
-  try {
-    // Click settings button
-    const settingsButton = document.querySelector('.ytp-settings-button');
-    if (!settingsButton) return false;
-    
-    settingsButton.click();
-    await new Promise(resolve => setTimeout(resolve, 100));
-    
-    // Click quality option
-    const menuItems = document.querySelectorAll('.ytp-menuitem');
-    const qualityButton = Array.from(menuItems).find(item => 
-      item.textContent.includes('Quality')
-    );
-    
-    if (!qualityButton) return false;
-    qualityButton.click();
-    await new Promise(resolve => setTimeout(resolve, 100));
-    
-    // Select specific quality
-    const qualityOptions = document.querySelectorAll('.ytp-menuitem');
-    const targetOption = Array.from(qualityOptions).find(option => 
-      option.textContent.includes(targetQuality.replace('hd', '') + 'p')
-    );
-    
-    if (targetOption) {
-      targetOption.click();
-      return true;
-    }
-    
-    // Close settings if we couldn't set quality
-    settingsButton.click();
-  } catch (error) {
-    console.log('Manual quality change error:', error);
-  }
-  
-  return false;
-}
-
-// Function to override YouTube's auto-quality
-function overrideAutoQuality(player) {
-  try {
-    // Override the auto-quality function
-    const originalSetPlaybackQuality = player.setPlaybackQuality;
-    player.setPlaybackQuality = function(quality) {
-      if (preferredResolution) {
-        const targetQuality = QUALITY_MAP[preferredResolution];
-        return originalSetPlaybackQuality.call(this, targetQuality);
-      }
-      return originalSetPlaybackQuality.call(this, quality);
-    };
-
-    // Override the quality range function
-    const originalSetPlaybackQualityRange = player.setPlaybackQualityRange;
-    player.setPlaybackQualityRange = function(min, max) {
-      if (preferredResolution) {
-        const targetQuality = QUALITY_MAP[preferredResolution];
-        return originalSetPlaybackQualityRange.call(this, targetQuality, targetQuality);
-      }
-      return originalSetPlaybackQualityRange.call(this, min, max);
-    };
-  } catch (error) {
-    console.log('Override error:', error);
-  }
-}
-
-// Function to set resolution directly through YouTube's player API
-async function setResolution(targetResolution) {
+// Function to set resolution
+function setResolution(targetResolution) {
   try {
     const player = initPlayer();
     if (!player) return;
 
     // Get available quality levels
     const levels = player.getAvailableQualityLevels();
-    if (!levels || levels.length === 0) return;
+    if (!levels) return;
 
-    // Map resolution to quality level
-    const targetQuality = QUALITY_MAP[targetResolution] || 'large';
-
-    // Override auto-quality functions
-    overrideAutoQuality(player);
-
-    // Try multiple methods to set quality
-    // Method 1: Direct API calls
-    player.setPlaybackQualityRange(targetQuality, targetQuality);
-    player.setPlaybackQuality(targetQuality);
-
-    // Method 2: Force through UI
-    await new Promise(resolve => setTimeout(resolve, 500));
-    if (player.getPlaybackQuality() !== targetQuality) {
-      await forceQualityChange(player, targetQuality);
-    }
-
-    // Method 3: Set quality through video element
-    const video = player.querySelector('video');
-    if (video) {
-      video.setAttribute('quality', targetQuality);
-      // Override video element's quality setting
-      Object.defineProperty(video, 'quality', {
-        get: () => targetQuality,
-        set: () => targetQuality
-      });
-    }
-
-    // Store the preferred resolution
-    preferredResolution = targetResolution;
-
-    // Force quality again after a short delay
-    setTimeout(() => {
+    // Get the target quality from our mapping
+    const targetQuality = QUALITY_MAP[targetResolution];
+    
+    // Set playback quality
+    if (levels.indexOf(targetQuality) >= 0) {
       player.setPlaybackQuality(targetQuality);
       player.setPlaybackQualityRange(targetQuality, targetQuality);
-    }, 1000);
+    } else {
+      // Find the best available quality
+      const availableQualities = Object.values(QUALITY_MAP)
+        .filter(quality => levels.indexOf(quality) >= 0)
+        .map(quality => parseInt(Object.keys(QUALITY_MAP).find(key => QUALITY_MAP[key] === quality)))
+        .sort((a, b) => b - a);
 
+      const bestQuality = availableQualities.find(quality => quality <= targetResolution) || 
+                         availableQualities[availableQualities.length - 1];
+      
+      const bestQualityString = QUALITY_MAP[bestQuality];
+      player.setPlaybackQuality(bestQualityString);
+      player.setPlaybackQualityRange(bestQualityString, bestQualityString);
+    }
+
+    // Resume playback
+    player.playVideo();
   } catch (error) {
     console.log('Resolution setting error:', error);
-  }
-}
-
-// Function to check and maintain resolution
-async function maintainResolution() {
-  if (!preferredResolution) return;
-
-  const player = initPlayer();
-  if (!player) return;
-
-  const currentQuality = player.getPlaybackQuality();
-  const targetQuality = QUALITY_MAP[preferredResolution];
-
-  if (currentQuality !== targetQuality) {
-    await setResolution(preferredResolution);
   }
 }
 
@@ -180,8 +96,7 @@ async function initResolutionControl() {
   try {
     const result = await chrome.storage.sync.get(['preferredResolution']);
     if (result.preferredResolution) {
-      preferredResolution = result.preferredResolution;
-      await setResolution(result.preferredResolution);
+      setResolution(result.preferredResolution);
     }
   } catch (error) {
     console.log('Storage access error:', error);
@@ -197,44 +112,31 @@ function isYouTubeVideoPage() {
 function startResolutionControl(attempts = 0) {
   if (attempts > MAX_ATTEMPTS) return;
 
-  const player = initPlayer();
-  if (player) {
-    initResolutionControl();
-    // Start continuous monitoring with shorter interval
-    setInterval(maintainResolution, 500);
-    return true;
+  if (isYouTubeVideoPage()) {
+    const video = document.querySelector('video');
+    if (video && video !== currentVideo) {
+      currentVideo = video;
+      resolutionChangeAttempts = 0;
+      
+      // Wait for player to be ready
+      setTimeout(() => {
+        initResolutionControl();
+      }, 1000);
+    }
   }
 
+  // Try again if needed
   setTimeout(() => {
     startResolutionControl(attempts + 1);
   }, 200);
 }
 
-// Watch for video player initialization and quality changes
-const observer = new MutationObserver((mutations) => {
-  if (!isYouTubeVideoPage()) return;
-
-  const video = document.querySelector('video');
-  if (video && video !== currentVideo) {
-    currentVideo = video;
-    resolutionChangeAttempts = 0;
-    startResolutionControl();
-  }
-});
-
-// Start observing only on YouTube video pages
-if (isYouTubeVideoPage()) {
-  observer.observe(document.body, {
-    childList: true,
-    subtree: true
-  });
-  startResolutionControl();
-}
+// Start resolution control
+startResolutionControl();
 
 // Listen for resolution change messages from popup
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'RESOLUTION_CHANGED') {
-    preferredResolution = message.resolution;
     setResolution(message.resolution);
     sendResponse({ success: true });
   }
