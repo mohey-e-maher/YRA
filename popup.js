@@ -1,58 +1,19 @@
-// Function to decrypt password
-async function decryptPassword(encryptedData) {
-  try {
-    const key = await crypto.subtle.importKey(
-      "raw",
-      new Uint8Array(encryptedData.key),
-      "AES-GCM",
-      true,
-      ["decrypt"]
-    );
-    const decrypted = await crypto.subtle.decrypt(
-      {
-        name: "AES-GCM",
-        iv: new Uint8Array(encryptedData.iv),
-      },
-      key,
-      new Uint8Array(encryptedData.encrypted)
-    );
-    return new TextDecoder().decode(decrypted);
-  } catch (error) {
-    console.error('Decryption error:', error);
-    return null;
-  }
-}
-
-// Function to verify password
-async function verifyPassword(password) {
-  try {
-    const result = await chrome.storage.sync.get(['encryptedPassword']);
-    if (!result.encryptedPassword) return false;
-    
-    const decryptedPassword = await decryptPassword(result.encryptedPassword);
-    return password === decryptedPassword;
-  } catch (error) {
-    console.error('Verification error:', error);
-    return false;
-  }
-}
-
-document.addEventListener('DOMContentLoaded', async () => {
-  const loginForm = document.getElementById('loginForm');
-  const settingsContent = document.getElementById('settingsContent');
-  const passwordInput = document.getElementById('password');
-  const loginButton = document.getElementById('loginButton');
-  const lockButton = document.getElementById('lockButton');
+document.addEventListener('DOMContentLoaded', () => {
   const resolutionSelect = document.getElementById('resolution');
   const statusDiv = document.getElementById('status');
 
-  // Check if password is set
-  const result = await chrome.storage.sync.get(['hasPassword']);
-  
-  if (!result.hasPassword) {
-    // First time setup - redirect to permission page
-    window.location.href = 'permission.html';
-    return;
+  // Function to safely send messages to content script
+  async function sendMessageToContentScript(message) {
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (tab.url.includes('youtube.com/watch')) {
+        return await chrome.tabs.sendMessage(tab.id, message);
+      }
+      return null;
+    } catch (error) {
+      console.log('Content script message error:', error);
+      return null;
+    }
   }
 
   // Function to show status message
@@ -66,35 +27,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     }, 2000);
   }
 
-  // Handle login
-  loginButton.addEventListener('click', async () => {
-    const password = passwordInput.value;
-    if (!password) {
-      showStatus('Please enter your password', true);
-      return;
-    }
-
-    const isValid = await verifyPassword(password);
-    if (isValid) {
-      loginForm.style.display = 'none';
-      settingsContent.style.display = 'block';
-      lockButton.querySelector('.material-icons-round').textContent = 'lock_open';
-      showStatus('Settings unlocked');
-    } else {
-      showStatus('Incorrect password', true);
-      passwordInput.value = '';
-    }
-  });
-
-  // Handle lock button
-  lockButton.addEventListener('click', () => {
-    loginForm.style.display = 'block';
-    settingsContent.style.display = 'none';
-    lockButton.querySelector('.material-icons-round').textContent = 'lock';
-    passwordInput.value = '';
-    showStatus('Settings locked');
-  });
-
   // Load saved resolution
   chrome.storage.sync.get(['preferredResolution'], (result) => {
     if (result.preferredResolution) {
@@ -107,22 +39,19 @@ document.addEventListener('DOMContentLoaded', async () => {
     const selectedResolution = resolutionSelect.value;
     
     try {
+      // Save to storage
       await chrome.storage.sync.set({ preferredResolution: selectedResolution });
       
       // Try to update current video if on YouTube
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (tab.url.includes('youtube.com/watch')) {
-        try {
-          await chrome.tabs.sendMessage(tab.id, {
-            type: 'RESOLUTION_CHANGED',
-            resolution: selectedResolution
-          });
-          showStatus('Settings saved successfully!');
-        } catch (error) {
-          showStatus('Settings saved. Will apply to next video.');
-        }
-      } else {
+      const response = await sendMessageToContentScript({
+        type: 'RESOLUTION_CHANGED',
+        resolution: selectedResolution
+      });
+
+      if (response) {
         showStatus('Settings saved successfully!');
+      } else {
+        showStatus('Settings saved. Will apply to next video.');
       }
     } catch (error) {
       console.log('Error saving settings:', error);
