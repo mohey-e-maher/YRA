@@ -41,19 +41,11 @@ function initPlayer() {
     return null;
   }
 
-  // Pause to avoid flicker caused by loading different quality
-  player.pauseVideo();
-
-  // In Chrome Flash player, player.setQualityLevel() doesn't work unless video has started playing
-  if (!isHTML5 && player.getPlayerState() < 1) {
-    return null;
-  }
-
   return player;
 }
 
-// Function to set resolution
-function setResolution(targetResolution) {
+// Function to set lowest resolution
+function setLowestResolution() {
   try {
     const player = initPlayer();
     if (!player) return;
@@ -62,30 +54,23 @@ function setResolution(targetResolution) {
     const levels = player.getAvailableQualityLevels();
     if (!levels) return;
 
-    // Get the target quality from our mapping
-    const targetQuality = QUALITY_MAP[targetResolution];
+    // Find the lowest available quality
+    const lowestQuality = levels[levels.length - 1];
     
-    // Set playback quality
-    if (levels.indexOf(targetQuality) >= 0) {
-      player.setPlaybackQuality(targetQuality);
-      player.setPlaybackQualityRange(targetQuality, targetQuality);
-    } else {
-      // Find the best available quality
-      const availableQualities = Object.values(QUALITY_MAP)
-        .filter(quality => levels.indexOf(quality) >= 0)
-        .map(quality => parseInt(Object.keys(QUALITY_MAP).find(key => QUALITY_MAP[key] === quality)))
-        .sort((a, b) => b - a);
-
-      const bestQuality = availableQualities.find(quality => quality <= targetResolution) || 
-                         availableQualities[availableQualities.length - 1];
-      
-      const bestQualityString = QUALITY_MAP[bestQuality];
-      player.setPlaybackQuality(bestQualityString);
-      player.setPlaybackQualityRange(bestQualityString, bestQualityString);
+    // Set playback quality to lowest
+    player.setPlaybackQuality(lowestQuality);
+    player.setPlaybackQualityRange(lowestQuality, lowestQuality);
+    
+    // Force quality settings
+    player.setPlaybackQualityRange(lowestQuality, lowestQuality);
+    
+    // Additional quality enforcement
+    const video = document.querySelector('video');
+    if (video) {
+      video.setAttribute('quality', lowestQuality);
     }
 
-    // Resume playback
-    player.playVideo();
+    console.log('Set resolution to:', lowestQuality);
   } catch (error) {
     console.log('Resolution setting error:', error);
   }
@@ -94,10 +79,7 @@ function setResolution(targetResolution) {
 // Function to initialize resolution control
 async function initResolutionControl() {
   try {
-    const result = await chrome.storage.sync.get(['preferredResolution']);
-    if (result.preferredResolution) {
-      setResolution(result.preferredResolution);
-    }
+    setLowestResolution();
   } catch (error) {
     console.log('Storage access error:', error);
   }
@@ -137,8 +119,25 @@ startResolutionControl();
 // Listen for resolution change messages from popup
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'RESOLUTION_CHANGED') {
-    setResolution(message.resolution);
+    setLowestResolution();
     sendResponse({ success: true });
   }
   return true;
+});
+
+// Additional observer to catch dynamic video changes
+const observer = new MutationObserver((mutations) => {
+  if (isYouTubeVideoPage()) {
+    const video = document.querySelector('video');
+    if (video && video !== currentVideo) {
+      currentVideo = video;
+      setLowestResolution();
+    }
+  }
+});
+
+// Start observing
+observer.observe(document.body, {
+  childList: true,
+  subtree: true
 }); 
