@@ -28,7 +28,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Load saved resolution
-  chrome.storage.sync.get(['preferredResolution'], (result) => {
+  chrome.storage.sync.get(['preferredResolution', 'isDefault'], (result) => {
     if (result.preferredResolution) {
       resolutionSelect.value = result.preferredResolution;
     }
@@ -39,8 +39,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const selectedResolution = resolutionSelect.value;
     
     try {
-      // Save to storage
-      await chrome.storage.sync.set({ preferredResolution: selectedResolution });
+      // Save to storage and set as default
+      await chrome.storage.sync.set({ 
+        preferredResolution: selectedResolution,
+        isDefault: true 
+      });
       
       // Try to update current video if on YouTube
       const response = await sendMessageToContentScript({
@@ -49,9 +52,9 @@ document.addEventListener('DOMContentLoaded', () => {
       });
 
       if (response) {
-        showStatus('Settings saved successfully!');
+        showStatus('Default resolution saved successfully!');
       } else {
-        showStatus('Settings saved. Will apply to next video.');
+        showStatus('Default resolution saved. Will apply to next video.');
       }
     } catch (error) {
       console.log('Error saving settings:', error);
